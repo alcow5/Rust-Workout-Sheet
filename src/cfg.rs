@@ -23,11 +23,40 @@ impl Cfg {
     pub fn load(args: Args) -> Result<Self> {
         info!("Loading configuration from: {}", args.config);
         
-        let config_builder = Config::builder()
-            .add_source(File::with_name(&args.config).required(false));
+        // Start with defaults
+        let mut cfg = Cfg::default();
         
-        let config = config_builder.build()?;
-        let mut cfg: Cfg = config.try_deserialize()?;
+        // Try to load from config file if it exists
+        if std::path::Path::new(&args.config).exists() {
+            let config_builder = Config::builder()
+                .add_source(File::with_name(&args.config).required(false));
+            
+            if let Ok(config) = config_builder.build() {
+                // Get individual values, falling back to defaults if they don't exist
+                if let Ok(sheet_id) = config.get_string("sheet_id") {
+                    if sheet_id != "YOUR_SHEET_ID" {
+                        cfg.sheet_id = sheet_id;
+                    }
+                }
+                if let Ok(raw_range) = config.get_string("raw_range") {
+                    cfg.raw_range = raw_range;
+                }
+                if let Ok(state_path) = config.get_string("state_path") {
+                    cfg.state_path = state_path;
+                }
+                if let Ok(output_path) = config.get_string("output_csv.path") {
+                    cfg.output_csv.path = output_path;
+                }
+                if let Ok(ensure) = config.get_bool("output_csv.ensure") {
+                    cfg.output_csv.ensure = ensure;
+                }
+                debug!("Loaded configuration from file");
+            } else {
+                debug!("Could not parse config file, using defaults");
+            }
+        } else {
+            debug!("Config file not found, using defaults");
+        }
         
         // Override with command line arguments if provided
         if let Some(sheet_id) = args.sheet_id {
