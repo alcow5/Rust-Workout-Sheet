@@ -30,4 +30,13 @@ config/config.toml
 
 # Temporary files
 *.tmp
-*.temp 
+*.temp
+
+# Debug output files (may contain sensitive tokens)
+debug_*.txt
+debug_*.log
+output_*.txt
+
+# CSV data files (may contain personal workout data)
+normalized/
+*.csv 
