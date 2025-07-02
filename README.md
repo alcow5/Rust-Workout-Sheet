@@ -1,6 +1,6 @@
 # sheet_watch
 
-An intelligent Rust CLI tool that automatically discovers and processes workout data from Google Sheets. Designed For my specific coachs Google sheet and the format we use together for my training regiment, it dynamically finds all workout "Block" tabs, intelligently detects the optimal data range for each block, and extracts structured workout data to CSV format.
+An intelligent Rust CLI tool that automatically discovers and processes workout data from Google Sheets. Designed For my specific coach's Google sheet and the format we use together for my training regiment, it dynamically finds all workout "Block" tabs, intelligently detects the optimal data range for each block, and extracts structured workout data to CSV format.
 
 ## 🧠 **Intelligent Auto-Discovery Features**
 
