@@ -24,6 +24,10 @@ state.json.backup
 # Config files with secrets (keep example)
 config/config.toml
 
+# Google Cloud service account keys
+*.json
+!config/*.json
+
 # Temporary files
 *.tmp
 *.temp 

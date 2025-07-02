@@ -64,8 +64,14 @@ cargo build --release
 
 ### Configure Authentication
 
-Set the environment variable pointing to your service account key:
+You have two options for authentication:
 
+**Option 1: Place the service account key in the project root (Recommended)**
+- Place your service account JSON key file in the project root directory
+- The application will automatically detect and use it
+- Example: `sheet-downloader-464704-52368cd74b07.json`
+
+**Option 2: Use environment variable**
 ```bash
 # Windows PowerShell
 $env:GOOGLE_APPLICATION_CREDENTIALS="C:\path\to\your\service-account-key.json"
@@ -76,6 +82,8 @@ set GOOGLE_APPLICATION_CREDENTIALS=C:\path\to\your\service-account-key.json
 # Linux/macOS
 export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/service-account-key.json"
 ```
+
+**Note:** The service account JSON key is automatically added to `.gitignore` to prevent accidental commits.
 
 ## Usage
 
