@@ -3,9 +3,9 @@ use csv::Writer;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use tracing::{info, debug};
-use crate::transform::NormalizedRow;
+use crate::transform::WorkoutRecord;
 
-pub fn append(csv_path: &str, rows: &[NormalizedRow], ensure_directories: bool) -> Result<()> {
+pub fn append(csv_path: &str, rows: &[WorkoutRecord], ensure_directories: bool) -> Result<()> {
     let path = Path::new(csv_path);
     
     info!("Appending {} rows to CSV file: {}", rows.len(), csv_path);
@@ -37,7 +37,7 @@ pub fn append(csv_path: &str, rows: &[NormalizedRow], ensure_directories: bool) 
     // Write header if this is a new file
     if needs_header {
         info!("Writing CSV header to new file");
-        writer.write_record(&NormalizedRow::to_csv_headers())?;
+        writer.write_record(&WorkoutRecord::to_csv_headers())?;
     }
     
     // Write all rows

@@ -1,39 +1,47 @@
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, NaiveDate, Duration, Datelike};
 use anyhow::Result;
 use tracing::debug;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct NormalizedRow {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkoutRecord {
     pub id: String,
-    pub timestamp: DateTime<Utc>,
+    pub block_name: String,
+    pub week_start_date: String,  // e.g., "5/19/2025"
+    pub week_number: u32,         // 1, 2, 3, etc.
+    pub day_number: u32,          // 1, 2, 3, etc. 
+    pub workout_date: String,     // Calculated actual workout date
     pub exercise_name: String,
-    pub category: String,
+    pub record_type: String,      // "prescribed" or "actual"
+    
+    // Workout data
     pub sets: Option<u32>,
-    pub reps: Option<u32>,
-    pub weight: Option<f64>,
-    pub weight_unit: String,
-    pub duration: Option<u32>, // in seconds
-    pub distance: Option<f64>,
-    pub distance_unit: String,
+    pub reps: Option<String>,     // Can be "7", "8-10", etc.
+    pub load: Option<f64>,
+    pub load_instruction: Option<String>, // "find", "base on max", etc.
+    pub rpe: Option<String>,      // Can be "5", "5, 6", "easy 7", etc.
     pub notes: Option<String>,
+    
+    // Metadata
     pub processed_at: DateTime<Utc>,
 }
 
-impl NormalizedRow {
+impl WorkoutRecord {
     pub fn to_csv_headers() -> Vec<String> {
         vec![
             "id".to_string(),
-            "timestamp".to_string(),
+            "block_name".to_string(),
+            "week_start_date".to_string(),
+            "week_number".to_string(),
+            "day_number".to_string(),
+            "workout_date".to_string(),
             "exercise_name".to_string(),
-            "category".to_string(),
+            "record_type".to_string(),
             "sets".to_string(),
             "reps".to_string(),
-            "weight".to_string(),
-            "weight_unit".to_string(),
-            "duration_seconds".to_string(),
-            "distance".to_string(),
-            "distance_unit".to_string(),
+            "load".to_string(),
+            "load_instruction".to_string(),
+            "rpe".to_string(),
             "notes".to_string(),
             "processed_at".to_string(),
         ]
@@ -42,195 +50,352 @@ impl NormalizedRow {
     pub fn to_csv_row(&self) -> Vec<String> {
         vec![
             self.id.clone(),
-            self.timestamp.to_rfc3339(),
+            self.block_name.clone(),
+            self.week_start_date.clone(),
+            self.week_number.to_string(),
+            self.day_number.to_string(),
+            self.workout_date.clone(),
             self.exercise_name.clone(),
-            self.category.clone(),
-            self.sets.map_or(String::new(), |v| v.to_string()),
-            self.reps.map_or(String::new(), |v| v.to_string()),
-            self.weight.map_or(String::new(), |v| v.to_string()),
-            self.weight_unit.clone(),
-            self.duration.map_or(String::new(), |v| v.to_string()),
-            self.distance.map_or(String::new(), |v| v.to_string()),
-            self.distance_unit.clone(),
-            self.notes.as_ref().unwrap_or(&String::new()).clone(),
+            self.record_type.clone(),
+            self.sets.map(|s| s.to_string()).unwrap_or_default(),
+            self.reps.clone().unwrap_or_default(),
+            self.load.map(|l| l.to_string()).unwrap_or_default(),
+            self.load_instruction.clone().unwrap_or_default(),
+            self.rpe.clone().unwrap_or_default(),
+            self.notes.clone().unwrap_or_default(),
             self.processed_at.to_rfc3339(),
         ]
     }
 }
 
-pub fn normalize_row(raw_row: Vec<String>) -> Result<NormalizedRow> {
-    debug!("Normalizing row with {} columns: {:?}", raw_row.len(), raw_row);
-    
-    if raw_row.is_empty() {
-        anyhow::bail!("Cannot normalize empty row");
-    }
-    
-    let now = Utc::now();
-    
-    // Expected column format (adjust based on your actual sheet structure):
-    // 0: Date/Time, 1: Exercise Name, 2: Category, 3: Sets, 4: Reps, 5: Weight, 6: Duration, 7: Distance, 8: Notes
-    
-    let timestamp = parse_timestamp(raw_row.get(0)).unwrap_or(now);
-    let exercise_name = raw_row.get(1).unwrap_or(&String::new()).trim().to_string();
-    let category = raw_row.get(2).unwrap_or(&"General".to_string()).trim().to_string();
-    
-    // Parse numeric values with error handling
-    let sets = parse_optional_u32(raw_row.get(3));
-    let reps = parse_optional_u32(raw_row.get(4));
-    let weight = parse_optional_f64(raw_row.get(5));
-    let duration = parse_duration(raw_row.get(6)); // Parse duration in various formats
-    let distance = parse_optional_f64(raw_row.get(7));
-    
-    // Determine units based on common patterns or defaults
-    let weight_unit = determine_weight_unit(raw_row.get(5)).unwrap_or("lbs".to_string());
-    let distance_unit = determine_distance_unit(raw_row.get(7)).unwrap_or("miles".to_string());
-    
-    let notes = raw_row.get(8).filter(|s| !s.trim().is_empty()).map(|s| s.trim().to_string());
-    
-    let normalized = NormalizedRow {
-        id: format!("row_{}_{}", timestamp.timestamp(), now.timestamp_millis()),
-        timestamp,
-        exercise_name,
-        category,
-        sets,
-        reps,
-        weight,
-        weight_unit,
-        duration,
-        distance,
-        distance_unit,
-        notes,
-        processed_at: now,
-    };
-    
-    debug!("Normalized row: {:?}", normalized);
-    Ok(normalized)
+#[derive(Debug, Clone)]
+struct WeekInfo {
+    week_number: u32,
+    start_date: String,
+    start_col: usize,
+    end_col: usize,
 }
 
-fn parse_timestamp(timestamp_str: Option<&String>) -> Option<DateTime<Utc>> {
-    let s = timestamp_str?.trim();
-    
-    // Try parsing as RFC3339 first
-    if let Ok(dt) = s.parse::<DateTime<Utc>>() {
-        return Some(dt);
-    }
-    
-    // Try common date formats
-    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
-        return Some(dt.and_utc());
-    }
-    
-    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%m/%d/%Y %H:%M") {
-        return Some(dt.and_utc());
-    }
-    
-    if let Ok(dt) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        return Some(dt.and_hms_opt(0, 0, 0)?.and_utc());
-    }
-    
-    if let Ok(dt) = chrono::NaiveDate::parse_from_str(s, "%m/%d/%Y") {
-        return Some(dt.and_hms_opt(0, 0, 0)?.and_utc());
-    }
-    
-    None
+#[derive(Debug, Clone)]
+struct DayInfo {
+    day_number: u32,
+    row_index: usize,
 }
 
-fn parse_optional_u32(value_str: Option<&String>) -> Option<u32> {
-    value_str
-        .filter(|s| !s.trim().is_empty())
-        .and_then(|s| clean_numeric_string(s.trim()).parse().ok())
-}
-
-fn parse_optional_f64(value_str: Option<&String>) -> Option<f64> {
-    value_str
-        .filter(|s| !s.trim().is_empty())
-        .and_then(|s| clean_numeric_string(s.trim()).parse().ok())
-}
-
-fn parse_duration(duration_str: Option<&String>) -> Option<u32> {
-    let s = duration_str?.trim();
-    if s.is_empty() {
-        return None;
+pub fn normalize_block_data(raw_rows: Vec<Vec<String>>, block_name: &str) -> Result<Vec<WorkoutRecord>> {
+    if raw_rows.is_empty() {
+        return Ok(Vec::new());
     }
     
-    // Try to parse duration in various formats
-    // "30" (assume seconds), "5:30" (min:sec), "1:05:30" (hour:min:sec), "30s", "5m", "1h"
+    debug!("Processing block: {} with {} rows", block_name, raw_rows.len());
     
-    if let Ok(seconds) = s.parse::<u32>() {
-        return Some(seconds);
-    }
+    // Step 1: Parse the header structure to identify weeks
+    let weeks = parse_week_structure(&raw_rows)?;
+    debug!("Found {} weeks in block {}", weeks.len(), block_name);
     
-    // Handle "30s", "5m", "1h" format
-    if s.ends_with('s') || s.ends_with('S') {
-        if let Ok(secs) = s[..s.len()-1].parse::<u32>() {
-            return Some(secs);
-        }
-    }
-    if s.ends_with('m') || s.ends_with('M') {
-        if let Ok(mins) = s[..s.len()-1].parse::<u32>() {
-            return Some(mins * 60);
-        }
-    }
-    if s.ends_with('h') || s.ends_with('H') {
-        if let Ok(hours) = s[..s.len()-1].parse::<u32>() {
-            return Some(hours * 3600);
-        }
-    }
+    // Step 2: Identify day rows and exercise rows
+    let (day_rows, exercise_rows) = identify_row_types(&raw_rows)?;
+    debug!("Found {} day markers and {} exercise rows", day_rows.len(), exercise_rows.len());
     
-    // Handle "MM:SS" or "HH:MM:SS" format
-    let parts: Vec<&str> = s.split(':').collect();
-    match parts.len() {
-        2 => {
-            // MM:SS
-            if let (Ok(mins), Ok(secs)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-                return Some(mins * 60 + secs);
+    // Step 3: Process each exercise for each week and day
+    let mut workout_records = Vec::new();
+    
+    for week in &weeks {
+        for day in &day_rows {
+            let workout_date = calculate_workout_date(&week.start_date, day.day_number)?;
+            
+            // Find exercises for this day
+            let day_exercises = find_exercises_for_day(&raw_rows, day.row_index, &exercise_rows);
+            
+            for exercise_row_idx in day_exercises {
+                if let Some(exercise_row) = raw_rows.get(exercise_row_idx) {
+                    if let Some(exercise_name) = exercise_row.get(1) {
+                        if !exercise_name.trim().is_empty() && exercise_name != "Exercise" {
+                            // Extract prescribed and actual data for this week
+                            let prescribed = extract_prescribed_data(
+                                exercise_row, week, block_name, &week.start_date, 
+                                week.week_number, day.day_number, &workout_date, exercise_name
+                            )?;
+                            
+                            let actual = extract_actual_data(
+                                exercise_row, week, block_name, &week.start_date,
+                                week.week_number, day.day_number, &workout_date, exercise_name
+                            )?;
+                            
+                            if let Some(p) = prescribed {
+                                workout_records.push(p);
+                            }
+                            if let Some(a) = actual {
+                                workout_records.push(a);
+                            }
+                        }
+                    }
+                }
             }
         }
-        3 => {
-            // HH:MM:SS
-            if let (Ok(hours), Ok(mins), Ok(secs)) = (
-                parts[0].parse::<u32>(),
-                parts[1].parse::<u32>(),
-                parts[2].parse::<u32>(),
-            ) {
-                return Some(hours * 3600 + mins * 60 + secs);
-            }
-        }
-        _ => {}
     }
     
-    None
+    debug!("Generated {} workout records for block {}", workout_records.len(), block_name);
+    Ok(workout_records)
 }
 
-fn determine_weight_unit(weight_str: Option<&String>) -> Option<String> {
-    let s = weight_str?.to_lowercase();
-    if s.contains("kg") || s.contains("kilo") {
-        Some("kg".to_string())
-    } else if s.contains("lb") || s.contains("pound") {
-        Some("lbs".to_string())
+fn parse_week_structure(raw_rows: &[Vec<String>]) -> Result<Vec<WeekInfo>> {
+    let mut weeks = Vec::new();
+    
+    // Look for date headers (like "5/19/2025") in the first few rows
+    for (row_idx, row) in raw_rows.iter().take(5).enumerate() {
+        debug!("Row {} has {} columns: {:?}", row_idx, row.len(), row.iter().take(20).collect::<Vec<_>>());
+        for (col_idx, cell) in row.iter().enumerate() {
+            if is_date_header(cell) {
+                // Look for week number in the row below
+                let week_number = if let Some(next_row) = raw_rows.get(row_idx + 1) {
+                    parse_week_number(next_row.get(col_idx).unwrap_or(&String::new()))
+                } else {
+                    weeks.len() as u32 + 1
+                };
+                
+                weeks.push(WeekInfo {
+                    week_number,
+                    start_date: cell.clone(),
+                    start_col: col_idx,
+                    end_col: col_idx + 12, // Estimate, will refine
+                });
+            }
+        }
+    }
+    
+    // Refine end columns based on next week start or total columns
+    for i in 0..weeks.len() {
+        if i + 1 < weeks.len() {
+            weeks[i].end_col = weeks[i + 1].start_col - 1;
+        } else if let Some(first_row) = raw_rows.first() {
+            weeks[i].end_col = first_row.len() - 1;
+        }
+    }
+    
+    Ok(weeks)
+}
+
+fn is_date_header(cell: &str) -> bool {
+    // Check for date patterns like "5/19/2025", "5/26/2025"
+    let trimmed = cell.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    
+    // Simple date pattern: M/D/YYYY or MM/DD/YYYY
+    let parts: Vec<&str> = trimmed.split('/').collect();
+    let is_date = parts.len() == 3 && 
+        parts[0].parse::<u32>().is_ok() && 
+        parts[1].parse::<u32>().is_ok() && 
+        parts[2].parse::<u32>().is_ok();
+    
+    if is_date {
+        debug!("Found date header: '{}'", trimmed);
+    }
+    
+    is_date
+}
+
+fn parse_week_number(cell: &str) -> u32 {
+    let cell = cell.to_lowercase();
+    if cell.contains("week 1") { 1 }
+    else if cell.contains("week 2") { 2 }
+    else if cell.contains("week 3") { 3 }
+    else if cell.contains("week 4") { 4 }
+    else if cell.contains("week 5") { 5 }
+    else if cell.contains("deload") { 6 }
+    else { 1 }
+}
+
+fn identify_row_types(raw_rows: &[Vec<String>]) -> Result<(Vec<DayInfo>, Vec<usize>)> {
+    let mut day_rows = Vec::new();
+    let mut exercise_rows = Vec::new();
+    
+    for (row_idx, row) in raw_rows.iter().enumerate() {
+        if let Some(first_cell) = row.get(1) { // Column B (index 1)
+            let cell = first_cell.trim().to_uppercase();
+            
+            // Check for day markers
+            if cell.starts_with("DAY ") {
+                if let Some(day_num_str) = cell.strip_prefix("DAY ") {
+                    let day_num_str = day_num_str.split_whitespace().next().unwrap_or("1");
+                    if let Ok(day_num) = day_num_str.parse::<u32>() {
+                        day_rows.push(DayInfo {
+                            day_number: day_num,
+                            row_index: row_idx,
+                        });
+                    }
+                }
+            }
+            // Check for exercise rows (not empty, not "Exercise", not day markers)
+            else if !cell.is_empty() && 
+                    cell != "EXERCISE" && 
+                    !cell.starts_with("DAY ") &&
+                    !cell.starts_with("WEEK ") &&
+                    !cell.contains("RPE") &&
+                    !is_date_header(first_cell) {
+                exercise_rows.push(row_idx);
+            }
+        }
+    }
+    
+    Ok((day_rows, exercise_rows))
+}
+
+fn find_exercises_for_day(raw_rows: &[Vec<String>], day_row_idx: usize, exercise_rows: &[usize]) -> Vec<usize> {
+    // Find exercise rows that come after this day marker but before the next day marker
+    let next_day_idx = raw_rows.iter()
+        .enumerate()
+        .skip(day_row_idx + 1)
+        .find(|(_, row)| {
+            if let Some(cell) = row.get(1) {
+                cell.trim().to_uppercase().starts_with("DAY ")
+            } else {
+                false
+            }
+        })
+        .map(|(idx, _)| idx)
+        .unwrap_or(raw_rows.len());
+    
+    exercise_rows.iter()
+        .filter(|&&row_idx| row_idx > day_row_idx && row_idx < next_day_idx)
+        .copied()
+        .collect()
+}
+
+fn calculate_workout_date(week_start_date: &str, day_number: u32) -> Result<String> {
+    // Parse the date string (e.g., "5/19/2025")
+    let parts: Vec<&str> = week_start_date.split('/').collect();
+    if parts.len() != 3 {
+        return Ok(week_start_date.to_string());
+    }
+    
+    let month: u32 = parts[0].parse().unwrap_or(1);
+    let day: u32 = parts[1].parse().unwrap_or(1);
+    let year: i32 = parts[2].parse().unwrap_or(2025);
+    
+    if let Some(start_date) = NaiveDate::from_ymd_opt(year, month, day) {
+        // Add days based on workout day (Day 1 = Monday = +0, Day 2 = Tuesday = +1, etc.)
+        let workout_date = start_date + Duration::days((day_number - 1) as i64);
+        Ok(format!("{}/{}/{}", workout_date.month(), workout_date.day(), workout_date.year()))
     } else {
-        None
+        Ok(week_start_date.to_string())
     }
 }
 
-fn determine_distance_unit(distance_str: Option<&String>) -> Option<String> {
-    let s = distance_str?.to_lowercase();
-    if s.contains("km") || s.contains("kilometer") {
-        Some("km".to_string())
-    } else if s.contains("mi") || s.contains("mile") {
-        Some("miles".to_string())
-    } else if s.contains("m") && !s.contains("mi") {
-        Some("meters".to_string())
-    } else if s.contains("ft") || s.contains("feet") {
-        Some("feet".to_string())
+fn extract_prescribed_data(
+    row: &[String], week: &WeekInfo, block_name: &str, week_start_date: &str,
+    week_number: u32, day_number: u32, workout_date: &str, exercise_name: &str
+) -> Result<Option<WorkoutRecord>> {
+    
+    // Prescribed data columns within this week's range
+    let sets_col = week.start_col + 1;
+    let reps_col = week.start_col + 2;
+    let load_instruction_col = week.start_col + 3;
+    let rpe_col = week.start_col + 4;
+    
+    let sets = row.get(sets_col).and_then(|s| s.trim().parse::<u32>().ok());
+    let reps = row.get(reps_col).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let load_instruction = row.get(load_instruction_col).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let rpe = row.get(rpe_col).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    
+    // Only create record if we have some meaningful prescribed data
+    if sets.is_some() || reps.is_some() || load_instruction.is_some() || rpe.is_some() {
+        let id = format!("{}_{}_w{}_d{}_prescribed_{}", 
+                        block_name.replace(" ", ""), 
+                        exercise_name.replace(" ", "").replace("/", ""), 
+                        week_number, day_number, Utc::now().timestamp_millis());
+        
+        Ok(Some(WorkoutRecord {
+            id,
+            block_name: block_name.to_string(),
+            week_start_date: week_start_date.to_string(),
+            week_number,
+            day_number,
+            workout_date: workout_date.to_string(),
+            exercise_name: exercise_name.to_string(),
+            record_type: "prescribed".to_string(),
+            sets,
+            reps,
+            load: None,
+            load_instruction,
+            rpe,
+            notes: None,
+            processed_at: Utc::now(),
+        }))
     } else {
-        None
+        Ok(None)
     }
 }
 
-pub fn clean_numeric_string(input: &str) -> String {
-    // Remove common non-numeric characters but keep decimal points and negative signs
-    use regex::Regex;
-    let re = Regex::new(r"[^\d.-]").unwrap();
-    re.replace_all(input, "").to_string()
+fn extract_actual_data(
+    row: &[String], week: &WeekInfo, block_name: &str, week_start_date: &str,
+    week_number: u32, day_number: u32, workout_date: &str, exercise_name: &str
+) -> Result<Option<WorkoutRecord>> {
+    
+    // Actual data columns within this week's range
+    let load_col = week.start_col + 6;
+    let sets_col = week.start_col + 7;
+    let reps_col = week.start_col + 8;
+    let rpe_col = week.start_col + 9;
+    let notes_col = week.start_col + 10;
+    
+    let load = row.get(load_col).and_then(|s| s.trim().parse::<f64>().ok());
+    let sets = row.get(sets_col).and_then(|s| s.trim().parse::<u32>().ok());
+    let reps = row.get(reps_col).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let rpe = row.get(rpe_col).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    let notes = row.get(notes_col).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    
+    // Only create record if we have some meaningful actual data
+    if load.is_some() || sets.is_some() || reps.is_some() || rpe.is_some() || notes.is_some() {
+        let id = format!("{}_{}_w{}_d{}_actual_{}", 
+                        block_name.replace(" ", ""), 
+                        exercise_name.replace(" ", "").replace("/", ""), 
+                        week_number, day_number, Utc::now().timestamp_millis());
+        
+        Ok(Some(WorkoutRecord {
+            id,
+            block_name: block_name.to_string(),
+            week_start_date: week_start_date.to_string(),
+            week_number,
+            day_number,
+            workout_date: workout_date.to_string(),
+            exercise_name: exercise_name.to_string(),
+            record_type: "actual".to_string(),
+            sets,
+            reps,
+            load,
+            load_instruction: None,
+            rpe,
+            notes,
+            processed_at: Utc::now(),
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+// Legacy function for backwards compatibility
+pub fn normalize_row(raw_row: Vec<String>) -> Result<WorkoutRecord> {
+    // For now, create a simple record - this will be replaced by the block processor
+    let id = format!("legacy_{}", Utc::now().timestamp_millis());
+    
+    Ok(WorkoutRecord {
+        id,
+        block_name: "Legacy".to_string(),
+        week_start_date: "".to_string(),
+        week_number: 1,
+        day_number: 1,
+        workout_date: "".to_string(),
+        exercise_name: raw_row.get(1).cloned().unwrap_or_default(),
+        record_type: "legacy".to_string(),
+        sets: None,
+        reps: None,
+        load: None,
+        load_instruction: None,
+        rpe: None,
+        notes: None,
+        processed_at: Utc::now(),
+    })
 } 

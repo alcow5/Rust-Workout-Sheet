@@ -1,14 +1,26 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use tracing::{info, debug};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct State {
+    // Legacy single range support
     pub last_processed_row: usize,
     pub last_updated: chrono::DateTime<chrono::Utc>,
     pub total_processed: usize,
+    
+    // Multi-block support: track last processed row per block
+    pub block_states: HashMap<String, BlockState>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BlockState {
+    pub last_processed_row: usize,
+    pub total_processed: usize,
+    pub last_updated: chrono::DateTime<chrono::Utc>,
 }
 
 impl Default for State {
@@ -17,6 +29,7 @@ impl Default for State {
             last_processed_row: 0,
             last_updated: chrono::Utc::now(),
             total_processed: 0,
+            block_states: HashMap::new(),
         }
     }
 }
@@ -30,6 +43,39 @@ impl State {
         self.last_processed_row += new_row_count;
         self.total_processed += new_row_count;
         self.last_updated = chrono::Utc::now();
+    }
+    
+    pub fn get_block_state(&self, block_range: &str) -> BlockState {
+        self.block_states.get(block_range).cloned().unwrap_or_else(|| {
+            BlockState {
+                last_processed_row: 0,
+                total_processed: 0,
+                last_updated: chrono::Utc::now(),
+            }
+        })
+    }
+    
+    pub fn update_block_state(&mut self, block_range: &str, new_row_count: usize) {
+        let now = chrono::Utc::now();
+        let block_state = self.block_states.entry(block_range.to_string()).or_insert_with(|| {
+            BlockState {
+                last_processed_row: 0,
+                total_processed: 0,
+                last_updated: now,
+            }
+        });
+        
+        block_state.last_processed_row += new_row_count;
+        block_state.total_processed += new_row_count;
+        block_state.last_updated = now;
+        
+        // Also update global counters
+        self.total_processed += new_row_count;
+        self.last_updated = now;
+    }
+    
+    pub fn get_next_row_for_block(&self, block_range: &str) -> usize {
+        self.get_block_state(block_range).last_processed_row + 1
     }
 }
 
