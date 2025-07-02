@@ -68,8 +68,8 @@ You have two options for authentication:
 
 **Option 1: Place the service account key in the project root (Recommended)**
 - Place your service account JSON key file in the project root directory
-- The application will automatically detect and use it
-- Example: `sheet-downloader-464704-52368cd74b07.json`
+- The application will automatically detect and use any `.json` file
+- Common names: `service-account-key.json`, `credentials.json`, `gcp-key.json`
 
 **Option 2: Use environment variable**
 ```bash

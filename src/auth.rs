@@ -5,7 +5,7 @@ use std::path::Path;
 use tracing::{info, debug};
 use yup_oauth2::{ServiceAccountAuthenticator, ServiceAccountKey};
 
-const DEFAULT_SERVICE_ACCOUNT_KEY: &str = "sheet-downloader-464704-52368cd74b07.json";
+const DEFAULT_SERVICE_ACCOUNT_KEY: &str = "service-account-key.json";
 
 pub async fn create_sheets_hub() -> Result<Sheets<hyper_rustls::HttpsConnector<hyper::client::HttpConnector>>> {
     info!("Initializing Google Sheets authentication");
@@ -50,12 +50,26 @@ fn get_service_account_key_path() -> Result<String> {
         return Ok(DEFAULT_SERVICE_ACCOUNT_KEY.to_string());
     }
     
-    // Check common locations
+    // Check common locations and patterns
     let common_paths = [
         "credentials.json",
-        "service-account.json",
+        "service-account.json", 
         "gcp-key.json",
+        "key.json",
     ];
+    
+    // Also check for any JSON files that might be service account keys
+    if let Ok(entries) = std::fs::read_dir(".") {
+        for entry in entries.flatten() {
+            if let Some(filename) = entry.file_name().to_str() {
+                if filename.ends_with(".json") && filename != "package.json" && filename != "config.json" {
+                    if Path::new(filename).exists() {
+                        return Ok(filename.to_string());
+                    }
+                }
+            }
+        }
+    }
     
     for path in &common_paths {
         if Path::new(path).exists() {
@@ -66,9 +80,9 @@ fn get_service_account_key_path() -> Result<String> {
          anyhow::bail!(
          "Could not find service account key file. Please either:\n\
          1. Set GOOGLE_APPLICATION_CREDENTIALS environment variable to point to your key file\n\
-         2. Place your service account key file as '{}' in the current directory\n\
-         3. Use one of these common names: {:?}",
-         DEFAULT_SERVICE_ACCOUNT_KEY,
+         2. Place your service account JSON key file in the current directory\n\
+         3. Use one of these common names: {:?}\n\
+         4. Any JSON file in the current directory will be detected automatically",
          common_paths
      );
 }
