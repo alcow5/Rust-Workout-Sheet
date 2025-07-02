@@ -1,0 +1,24 @@
+[package]
+name = "sheet_watch"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "sheet_watch"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+google-sheets4 = "5.0"
+gcp_auth = "0.6"
+csv = "1.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
+regex = "1.10"
+chrono = "0.4"
+config = "0.13"
+tracing = { version = "0.1", features = ["std", "log"] }
+tracing-subscriber = "0.3"
+anyhow = "1.0"
+thiserror = "1.0" 

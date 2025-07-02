@@ -1,0 +1,7 @@
+sheet_id = "YOUR_SHEET_ID"
+raw_range = "Raw!A2:Z"
+state_path = "state.json"
+
+[output_csv]
+path = "normalized/normalized.csv"
+ensure = true 
