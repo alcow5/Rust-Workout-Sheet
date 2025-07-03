@@ -1,6 +1,6 @@
 # Rust Code Tutorial: Understanding sheet_watch
 
-Welcome to Rust! This tutorial will walk you through the `sheet_watch` codebase to help you understand Rust concepts through real, working code. We'll start with basic concepts and build up to understanding the entire application.
+This document will walk you through the `sheet_watch` codebase to help you understand Rust concepts through real, working code. We'll start with basic concepts and build up to understanding the entire application.
 
 ## Table of Contents
 
